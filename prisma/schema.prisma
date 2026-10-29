@@ -1,0 +1,314 @@
+// prisma/schema.prisma
+// 岸上见 V1 - 学习记录平台
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================
+// 枚举
+// ============================================================
+
+enum TaskType {
+  DAILY
+}
+
+// ============================================================
+// 1. 用户表（用户账户由 Supabase Auth 管理，此表存储业务扩展字段）
+//    id 对应 Supabase auth.users.id
+// ============================================================
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String?
+  name      String?
+  emailVerified Boolean @default(false)
+  emailVerificationCode String?
+  emailVerificationCodeExpires DateTime?
+  avatar    String?
+  createdAt DateTime  @default(now())
+
+  tasks Task[]
+  journals Journal[]
+  recurringTasks RecurringTask[]
+  recurringCompletions RecurringTaskCompletion[]
+  idiomSearches IdiomSearch[]
+  customIdioms CustomIdiom[]
+  idiomFavorites IdiomFavorite[]
+  idiomNotes IdiomNote[]
+  idiomPracticeRecords IdiomPracticeRecord[]
+  recruitments Recruitment[]
+
+  @@map("users")
+}
+
+// ============================================================
+// 2. 任务表
+// ============================================================
+
+model Task {
+  id        String    @id @default(uuid())
+  userId    String
+  title     String
+  type      TaskType  @default(DAILY)
+  date      DateTime?
+  completed Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, date])
+  @@map("tasks")
+}
+
+// ============================================================
+// 3. 每日一记
+// ============================================================
+
+model Journal {
+  id        String    @id @default(uuid())
+  userId    String
+  type      TaskType  @default(DAILY)
+  content   String
+  date      DateTime
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, date])
+  @@unique([userId, type, date])
+  @@map("journals")
+}
+
+// ============================================================
+// 4. 长期任务（按周几重复，每天同步到本日任务）
+// ============================================================
+
+model RecurringTask {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  daysOfWeek  String   // "1,2,3,4,5" 表示周一到周五（1=周一, 7=周日）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completions   RecurringTaskCompletion[]
+
+  @@index([userId])
+  @@map("recurring_tasks")
+}
+
+// 长期任务每天的完成状态
+model RecurringTaskCompletion {
+  id              String   @id @default(uuid())
+  recurringTaskId String
+  userId          String
+  date            DateTime // 当天零点
+  completed       Boolean  @default(false)
+
+  recurringTask RecurringTask @relation(fields: [recurringTaskId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recurringTaskId, date])
+  @@index([userId, date])
+  @@map("recurring_task_completions")
+}
+
+// ============================================================
+// 5. 成语搜索记录
+// ============================================================
+
+model IdiomSearch {
+  id        String   @id @default(uuid())
+  userId    String
+  word      String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, word])
+  @@index([userId])
+  @@map("idiom_searches")
+}
+
+// ============================================================
+// 7. 用户添加的成语
+// ============================================================
+
+model CustomIdiom {
+  id          String    @id @default(uuid())
+  userId      String
+  word        String
+  pinyin      String?
+  explanation String?
+  similar     String?
+  opposite    String?
+  usage       String?
+  example     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  favorites IdiomFavorite[]
+  notes IdiomNote[]
+  practiceRecords IdiomPracticeRecord[]
+
+  @@index([userId])
+  @@map("custom_idioms")
+}
+
+// ============================================================
+// 7.1 用户收藏的成语
+// ============================================================
+
+model IdiomFavorite {
+  id            String   @id @default(uuid())
+  userId        String
+  idiomId       String?
+  customIdiomId String?
+  createdAt     DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idiom       Idiom?       @relation(fields: [idiomId], references: [id], onDelete: Cascade)
+  customIdiom CustomIdiom? @relation(fields: [customIdiomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idiomId])
+  @@unique([userId, customIdiomId])
+  @@index([userId])
+  @@map("idiom_favorites")
+}
+
+// ============================================================
+// 7.2 用户对成语的备注
+// ============================================================
+
+model IdiomNote {
+  id            String   @id @default(uuid())
+  userId        String
+  idiomId       String?
+  customIdiomId String?
+  content       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idiom       Idiom?       @relation(fields: [idiomId], references: [id], onDelete: Cascade)
+  customIdiom CustomIdiom? @relation(fields: [customIdiomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idiomId])
+  @@unique([userId, customIdiomId])
+  @@index([userId])
+  @@map("idiom_notes")
+}
+
+// ============================================================
+// 7.3 用户成语练习记录（间隔重复记忆状态）
+// ============================================================
+
+model IdiomPracticeRecord {
+  id             String   @id @default(uuid())
+  userId         String
+  idiomId        String?
+  customIdiomId  String?
+  ease           Float    @default(2.5)
+  interval       Int      @default(0)
+  repetitions    Int      @default(0)
+  lapses         Int      @default(0)
+  dueDate        DateTime @default(now())
+  lastReviewedAt DateTime?
+  lastGrade      Int      @default(0)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idiom       Idiom?       @relation(fields: [idiomId], references: [id], onDelete: Cascade)
+  customIdiom CustomIdiom? @relation(fields: [customIdiomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idiomId])
+  @@unique([userId, customIdiomId])
+  @@index([userId, dueDate])
+  @@map("idiom_practice_records")
+}
+
+// ============================================================
+// 8. 成语词典（公共成语库，供用户查询）
+// ============================================================
+
+model Idiom {
+  id          String    @id @default(uuid())
+  word        String    @unique
+  pinyin      String
+  abbr        String
+  explanation String?
+  similar     String?
+  opposite    String?
+  usage       String?
+  isCustom    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  frequency IdiomFrequency?
+  favorites IdiomFavorite[]
+  notes IdiomNote[]
+  practiceRecords IdiomPracticeRecord[]
+
+  @@index([abbr])
+  @@index([word])
+  @@map("idioms")
+}
+
+// ============================================================
+// 8.1 成语词频表（公考高频成语，关联 idioms）
+// ============================================================
+
+model IdiomFrequency {
+  id      String @id @default(uuid())
+  idiomId String @unique
+  count   Int
+
+  idiom Idiom @relation(fields: [idiomId], references: [id], onDelete: Cascade)
+
+  @@index([idiomId])
+  @@map("idiom_frequencies")
+}
+
+// ============================================================
+// 9. 招聘信息
+// ============================================================
+
+model Recruitment {
+  id                   String   @id @default(uuid())
+  userId               String
+  title                String
+  registrationStart    DateTime?
+  registrationEnd      DateTime?
+  admissionTicketStart DateTime?
+  admissionTicketEnd   DateTime?
+  writtenExamDate      DateTime?
+  interviewDate        DateTime?
+  sourceUrl            String?
+  userNote             String?
+  registrationDone     Boolean  @default(false)
+  admissionTicketDone  Boolean  @default(false)
+  writtenExamDone      Boolean  @default(false)
+  interviewDone        Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, registrationEnd])
+  @@map("recruitments")
+}
